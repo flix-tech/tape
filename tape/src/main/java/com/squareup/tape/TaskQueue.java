@@ -1,4 +1,5 @@
 // Copyright 2012 Square, Inc.
+// Copyright 2016 FlixMobility GmbH
 package com.squareup.tape;
 
 /**
@@ -38,11 +39,22 @@ public class TaskQueue<T extends Task> implements ObjectQueue<T> {
   }
 
   @Override public void add(T entry) {
-    delegate.add(entry);
+    add(entry, 0, -1);
+  }
+
+  @Override public void add(T entry, long validUntil, int retryCount) {
+    if (retryCount == 0) {
+      retryCount = -1;
+    }
+    delegate.add(entry, validUntil, retryCount);
   }
 
   @Override public void remove() {
     delegate.remove();
+  }
+
+  @Override public boolean drop() {
+    return delegate.drop();
   }
 
   @Override public void setListener(final Listener<T> listener) {

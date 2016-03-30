@@ -1,4 +1,5 @@
 // Copyright 2011 Square, Inc.
+// Copyright 2016 FlixMobility GmbH
 package com.squareup.tape;
 
 /**
@@ -14,6 +15,9 @@ public interface ObjectQueue<T> {
   /** Enqueues an entry that can be processed at any time. */
   void add(T entry);
 
+  /** Enqueues an entry that can be processed at any time. */
+  void add(T entry, long validUntil, int retryCount);
+
   /**
    * Returns the head of the queue, or {@code null} if the queue is empty. Does not modify the
    * queue.
@@ -22,6 +26,9 @@ public interface ObjectQueue<T> {
 
   /** Removes the head of the queue. */
   void remove();
+
+  /** Drops the head of the queue if policy is active. */
+  boolean drop();
 
   /**
    * Sets a listener on this queue. Invokes {@link Listener#onAdd} once for each entry that's

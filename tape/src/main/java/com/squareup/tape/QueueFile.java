@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Square, Inc.
+ * Copyright (C) 2016 FlixMobility GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -84,8 +85,10 @@ public class QueueFile {
    *     Last Element Position  (4 bytes, =0 if null)
    * <p/>
    *   Element:
-   *     Length (4 bytes)
-   *     Data   (Length bytes)
+   *     Ttl          (8 bytes)
+   *     Retry Count  (4 bytes)
+   *     Length       (4 bytes)
+   *     Data         (Length bytes)
    * </pre>
    *
    * Visible for testing.
@@ -124,6 +127,33 @@ public class QueueFile {
   }
 
   /**
+   * Stores an {@code long} in the {@code byte[]}. The behavior is equivalent to calling
+   * {@link RandomAccessFile#writeLong}.
+   */
+  private static void writeLong(byte[] buffer, int offset, long value) {
+    buffer[offset] = (byte) (value >> 56);
+    buffer[offset + 1] = (byte) (value >> 48);
+    buffer[offset + 2] = (byte) (value >> 40);
+    buffer[offset + 3] = (byte) (value >> 32);
+    buffer[offset + 4] = (byte) (value >> 24);
+    buffer[offset + 5] = (byte) (value >> 16);
+    buffer[offset + 6] = (byte) (value >> 8);
+    buffer[offset + 7] = (byte) value;
+  }
+
+  /** Reads an {@code long} from the {@code byte[]}. */
+  private static long readLong(byte[] buffer, int offset) {
+    return ((buffer[offset] & 0xffL) << 56)
+            + ((buffer[offset + 1] & 0xffL) << 48)
+            + ((buffer[offset + 2] & 0xffL) << 40)
+            + ((buffer[offset + 3] & 0xffL) << 32)
+            + ((buffer[offset + 4] & 0xffL) << 24)
+            + ((buffer[offset + 5] & 0xffL) << 16)
+            + ((buffer[offset + 6] & 0xffL) << 8)
+            + (buffer[offset + 7] & 0xffL);
+  }
+
+  /**
    * Stores int in buffer. The behavior is equivalent to calling {@link
    * java.io.RandomAccessFile#writeInt}.
    */
@@ -149,9 +179,9 @@ public class QueueFile {
   /** Reads an int from a byte[]. */
   private static int readInt(byte[] buffer, int offset) {
     return ((buffer[offset] & 0xff) << 24)
-        + ((buffer[offset + 1] & 0xff) << 16)
-        + ((buffer[offset + 2] & 0xff) << 8)
-        + (buffer[offset + 3] & 0xff);
+            + ((buffer[offset + 1] & 0xff) << 16)
+            + ((buffer[offset + 2] & 0xff) << 8)
+            + (buffer[offset + 3] & 0xff);
   }
 
   /** Reads the header. */
@@ -188,8 +218,10 @@ public class QueueFile {
   private Element readElement(int position) throws IOException {
     if (position == 0) return Element.NULL;
     ringRead(position, buffer, 0, Element.HEADER_LENGTH);
-    int length = readInt(buffer, 0);
-    return new Element(position, length);
+    long validUntil = readLong(buffer, Element.VALID_UNTIL_OFFSET);
+    int retryCount = readInt(buffer, Element.RETRY_COUNT_OFFSET);
+    int length = readInt(buffer, Element.LENGTH_OFFSET);
+    return new Element(position, length, validUntil, retryCount);
   }
 
   /** Atomically initializes a new file. */
@@ -284,7 +316,7 @@ public class QueueFile {
    * @param data to copy bytes from
    */
   public void add(byte[] data) throws IOException {
-    add(data, 0, data.length);
+    add(data, 0, data.length, 0, -1);
   }
 
   /**
@@ -296,10 +328,29 @@ public class QueueFile {
    * @throws IndexOutOfBoundsException if {@code offset < 0} or {@code count < 0}, or if {@code offset + count} is
    *                                   bigger than the length of {@code buffer}.
    */
-  public synchronized void add(byte[] data, int offset, int count) throws IOException {
+  public void add(byte[] data, int offset, int count) throws IOException {
+    add(data, offset, count, 0, -1);
+  }
+
+  /**
+   * Adds an element to the end of the queue.
+   *
+   * @param data to copy bytes from
+   * @param offset to start from in buffer
+   * @param count number of bytes to copy
+   * @param validUntil policy
+   * @param retryCount policy
+   * @throws IndexOutOfBoundsException if {@code offset < 0} or {@code count < 0}, or if {@code
+   * offset + count} is bigger than the length of {@code buffer}.
+   */
+  public synchronized void add(byte[] data, int offset, int count, long validUntil, int retryCount) throws IOException {
     nonNull(data, "buffer");
     if ((offset | count) < 0 || count > data.length - offset) {
       throw new IndexOutOfBoundsException();
+    }
+
+    if (retryCount == 0) {
+      retryCount = -1;
     }
 
     expandIfNecessary(count);
@@ -307,10 +358,14 @@ public class QueueFile {
     // Insert a new element after the current last element.
     boolean wasEmpty = isEmpty();
     int position = wasEmpty ? HEADER_LENGTH : wrapPosition(last.position + Element.HEADER_LENGTH + last.length);
-    Element newLast = new Element(position, count);
+    Element newLast = new Element(position, count, validUntil, retryCount);
 
+    // Write validUntil
+    writeLong(buffer, Element.VALID_UNTIL_OFFSET, validUntil);
+    // Write retryCount
+    writeInt(buffer, Element.RETRY_COUNT_OFFSET, retryCount);
     // Write length.
-    writeInt(buffer, 0, count);
+    writeInt(buffer, Element.LENGTH_OFFSET, count);
     ringWrite(newLast.position, buffer, 0, Element.HEADER_LENGTH);
 
     // Write data.
@@ -392,7 +447,11 @@ public class QueueFile {
     if (last.position < first.position) {
       int newLastPosition = fileLength + last.position - HEADER_LENGTH;
       writeHeader(newLength, elementCount, first.position, newLastPosition);
-      last = new Element(newLastPosition, last.length);
+      byte[] buffer = new byte[Element.HEADER_LENGTH];
+      ringRead(newLastPosition, buffer, 0, Element.HEADER_LENGTH);
+      long validUntil = readLong(buffer, Element.VALID_UNTIL_OFFSET);
+      int retryCount = readInt(buffer, Element.RETRY_COUNT_OFFSET);
+      last = new Element(newLastPosition, last.length, validUntil, retryCount);
     } else {
       writeHeader(newLength, elementCount, first.position, last.position);
     }
@@ -410,9 +469,14 @@ public class QueueFile {
   /** Reads the eldest element. Returns null if the queue is empty. */
   public synchronized byte[] peek() throws IOException {
     if (isEmpty()) return null;
-    int length = first.length;
-    byte[] data = new byte[length];
-    ringRead(first.position + Element.HEADER_LENGTH, data, 0, length);
+
+    if (first.validUntil > 0 && first.validUntil < System.currentTimeMillis()) {
+      remove();
+      return peek();
+    }
+
+    byte[] data = new byte[first.length];
+    ringRead(first.position + Element.HEADER_LENGTH, data, 0, first.length);
     return data;
   }
 
@@ -421,6 +485,27 @@ public class QueueFile {
     if (elementCount > 0) {
       reader.read(new ElementInputStream(first), first.length);
     }
+  }
+
+  public synchronized boolean drop() throws IOException {
+    if (isEmpty()) return false;
+
+    boolean shouldWrite = first.retryCount > 0;
+    boolean shouldRemove = shouldWrite && --first.retryCount == 0;
+    shouldRemove |= first.validUntil > 0 && first.validUntil < System.currentTimeMillis();
+
+    if (shouldRemove) {
+      remove();
+      return true;
+    }
+
+    if (shouldWrite) {
+      byte[] buffer = new byte[4];
+      writeInt(buffer, 0, first.retryCount);
+      ringWrite(first.position + Element.RETRY_COUNT_OFFSET, buffer, 0, 4);
+    }
+
+    return false;
   }
 
   /**
@@ -504,10 +589,12 @@ public class QueueFile {
 
       int newFirstPosition = wrapPosition(first.position + firstTotalLength);
       ringRead(newFirstPosition, buffer, 0, Element.HEADER_LENGTH);
-      int length = readInt(buffer, 0);
+      int length = readInt(buffer, Element.LENGTH_OFFSET);
+      long validUntil = readLong(buffer, Element.VALID_UNTIL_OFFSET);
+      int retryCount = readInt(buffer, Element.RETRY_COUNT_OFFSET);
       writeHeader(fileLength, elementCount - 1, newFirstPosition, last.position);
       elementCount--;
-      first = new Element(newFirstPosition, length);
+      first = new Element(newFirstPosition, length, validUntil, retryCount);
     }
   }
 
@@ -558,12 +645,15 @@ public class QueueFile {
 
   /** A pointer to an element. */
   static class Element {
+    static final int VALID_UNTIL_OFFSET = 0;
+    static final int RETRY_COUNT_OFFSET = 8;
+    static final int LENGTH_OFFSET = 12;
 
     /** Length of element header in bytes. */
-    static final int HEADER_LENGTH = 4;
+    static final int HEADER_LENGTH = 16;
 
     /** Null element. */
-    static final Element NULL = new Element(0, 0);
+    static final Element NULL = new Element(0, 0, 0, -1);
 
     /** Position in file. */
     final int position;
@@ -571,15 +661,23 @@ public class QueueFile {
     /** The length of the data. */
     final int length;
 
+    /** Ttl of element */
+    final long validUntil;
+
+    /** Retry count */
+    int retryCount;
+
     /**
      * Constructs a new element.
      *
      * @param position within file
      * @param length   of data
      */
-    Element(int position, int length) {
+    Element(int position, int length, long validUntil, int retryCount) {
       this.position = position;
       this.length = length;
+      this.validUntil = validUntil;
+      this.retryCount = retryCount;
     }
 
     @Override public String toString() {

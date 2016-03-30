@@ -618,7 +618,7 @@ public class QueueFileTest {
     queue.add(values[4]);
 
     // Read from header to first element and make sure it's zeroed.
-    int firstElementPadding = 1028;
+    int firstElementPadding = Element.HEADER_LENGTH + 1024;
     byte[] data = new byte[firstElementPadding];
     queue.raf.seek(HEADER_LENGTH);
     queue.raf.readFully(data, 0, firstElementPadding);

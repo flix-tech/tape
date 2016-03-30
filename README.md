@@ -3,6 +3,8 @@ Tape by Square, Inc.
 
 Tape is a collection of queue-related classes for Android and Java.
 
+This fork extends the queue with retry policies.
+
 `QueueFile` is a lightning-fast, transactional, file-based FIFO. Addition and
 removal from an instance is an O(1) operation and is atomic. Writes are
 synchronous; data will be written to disk before an operation returns. The
@@ -23,17 +25,9 @@ prepares and executes enqueued tasks.
 Download
 --------
 
-Download [the latest JAR][2] or grab via Maven:
-```xml
-<dependency>
-  <groupId>com.squareup</groupId>
-  <artifactId>tape</artifactId>
-  <version>1.2.3</version>
-</dependency>
-```
-or Gradle:
+Grab via Gradle:
 ```groovy
-compile 'com.squareup:tape:1.2.3'
+compile 'com.github.flix-tech:tape:v1.2.3'
 ```
 
 
@@ -42,6 +36,7 @@ License
 -------
 
     Copyright 2012 Square, Inc.
+    Copyright 2016 FlixMobility GmbH
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -58,4 +53,3 @@ License
 
 
  [1]: http://square.github.com/tape/
- [2]: http://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=com.squareup&a=tape&v=LATEST

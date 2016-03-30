@@ -1,4 +1,5 @@
 // Copyright 2012 Square, Inc.
+// Copyright 2016 FlixMobility GmbH
 package com.squareup.tape;
 
 import java.io.ByteArrayOutputStream;
@@ -12,7 +13,7 @@ import java.io.OutputStream;
  * queue manager.  This class is not thread safe; instances should be kept
  * thread-confined.
  * <p>
- * The {@link #add( Object )}, {@link #peek()}, {@link #remove()}, and
+ * The {@link #add(Object, long, int)}, {@link #peek()}, {@link #remove()}, and
  * {@link #setListener(ObjectQueue.Listener)} methods may throw a
  * {@link FileException} if the underlying {@link QueueFile} experiences an
  * {@link java.io.IOException}.
@@ -40,10 +41,14 @@ public class FileObjectQueue<T> implements ObjectQueue<T> {
   }
 
   @Override public final void add(T entry) {
+    add(entry, 0, -1);
+  }
+
+  @Override public final void add(T entry, long validUntil, int retryCount) {
     try {
       bytes.reset();
       converter.toStream(entry, bytes);
-      queueFile.add(bytes.getArray(), 0, bytes.size());
+      queueFile.add(bytes.getArray(), 0, bytes.size(), validUntil, retryCount);
       if (listener != null) listener.onAdd(this, entry);
     } catch (IOException e) {
       throw new FileException("Failed to add entry.", e, file);
@@ -66,6 +71,16 @@ public class FileObjectQueue<T> implements ObjectQueue<T> {
       if (listener != null) listener.onRemove(this);
     } catch (IOException e) {
       throw new FileException("Failed to remove.", e, file);
+    }
+  }
+
+  @Override public final boolean drop() {
+    try {
+      boolean dropped = queueFile.drop();
+      if (dropped && listener != null) listener.onRemove(this);
+      return dropped;
+    } catch (IOException e) {
+      throw new FileException("Failed to drop.", e, file);
     }
   }
 
