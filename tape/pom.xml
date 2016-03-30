@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>com.squareup</groupId>
+    <groupId>com.github.flix-tech</groupId>
     <artifactId>tape-parent</artifactId>
     <version>1.2.3</version>
     <relativePath>../pom.xml</relativePath>
