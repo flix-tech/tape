@@ -57,6 +57,10 @@ public class TaskQueue<T extends Task> implements ObjectQueue<T> {
     return delegate.drop();
   }
 
+  @Override public void clear() {
+    delegate.clear();
+  }
+
   @Override public void setListener(final Listener<T> listener) {
     if (listener != null) {
       // Intercept event delivery to pass the correct TaskQueue instance to listener.

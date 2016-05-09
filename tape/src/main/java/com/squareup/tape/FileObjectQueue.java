@@ -84,6 +84,15 @@ public class FileObjectQueue<T> implements ObjectQueue<T> {
     }
   }
 
+  @Override public final void clear() {
+    try {
+      queueFile.clear();
+      if (listener != null) listener.onRemove(this);
+    } catch (IOException e) {
+      throw new FileException("Failed to clear.", e, file);
+    }
+  }
+
   public final void close() {
     try {
       queueFile.close();

@@ -30,6 +30,9 @@ public interface ObjectQueue<T> {
   /** Drops the head of the queue if policy is active. */
   boolean drop();
 
+  /** Clears the queue completely */
+  void clear();
+
   /**
    * Sets a listener on this queue. Invokes {@link Listener#onAdd} once for each entry that's
    * already in the queue. If an error occurs while reading the data, the listener will not receive
