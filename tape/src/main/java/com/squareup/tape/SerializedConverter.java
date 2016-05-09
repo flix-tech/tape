@@ -27,7 +27,7 @@ public class SerializedConverter<T extends Serializable> implements FileObjectQu
       entry = (T) oin.readUnshared();
     } catch (ClassNotFoundException e) {
       // This can only happen if we make an incompatible change.
-      throw new AssertionError(e);
+      throw new IllegalStateException(e);
     }
     return entry;
   }

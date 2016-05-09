@@ -438,7 +438,7 @@ public class QueueFile {
       channel.position(fileLength); // destination position
       int count = endOfLastElement - HEADER_LENGTH;
       if (channel.transferTo(HEADER_LENGTH, count, channel) != count) {
-        throw new AssertionError("Copied insufficient number of bytes!");
+        throw new IllegalStateException("Copied insufficient number of bytes!");
       }
       ringErase(HEADER_LENGTH, count);
     }
